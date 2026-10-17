@@ -1,0 +1,41 @@
+schema: spec-driven
+
+context: |
+  Python 3.11+ library `hitl` (src layout: src/hitl/), standard library only at runtime.
+  Tests use pytest + pytest-asyncio (asyncio_mode=auto) under tests/. Run: python3 -m pytest -q ; lint: ruff check .
+  Everything must be deterministic and testable without network: time comes from hitl.core.Clock (ManualClock in tests),
+  ids from hitl.core.new_id. Async APIs use asyncio; stores are pluggable via Protocols with an in-memory default so
+  backends can be swapped for horizontal scale. Each capability lives in its own module and depends only on hitl.core
+  (models, errors, Event/EventBus) — modules publish Events to an EventSink rather than importing each other.
+  The top-level HITLAgent in hitl/agent.py composes them.
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
