@@ -51,17 +51,32 @@ Requires Python 3.11+. The runtime uses only the standard library.
 
 ```python
 import asyncio
-from hitl import (Action, ApprovalPolicy, Approver, HITLAgent, InMemoryApproverDirectory,
-                  RiskLevel, RuleSignal, default_detector)
+from hitl import (
+    Action,
+    ApprovalPolicy,
+    Approver,
+    HITLAgent,
+    InMemoryApproverDirectory,
+    RiskLevel,
+    RuleSignal,
+    default_detector,
+)
+
 
 async def refund(action, context):
     return f"refunded {action.params['amount']}"
 
+
 async def main():
-    detector = default_detector(extra_signals=[
-        RuleSignal("large-amount", lambda a, ctx: a.params.get("amount", 0) > 1_000,
-                   "refund above 1,000 requires review"),
-    ])
+    detector = default_detector(
+        extra_signals=[
+            RuleSignal(
+                "large-amount",
+                lambda a, ctx: a.params.get("amount", 0) > 1_000,
+                "refund above 1,000 requires review",
+            ),
+        ]
+    )
     agent = HITLAgent(
         detector=detector,
         directory=InMemoryApproverDirectory([Approver("alice", {"finance"})]),
@@ -70,18 +85,21 @@ async def main():
     agent.register("payments.refund", refund)
 
     outcome = await agent.submit(
-        Action("payments.refund", {"amount": 4_800}, risk=RiskLevel.HIGH, confidence=0.9))
-    print(outcome.status)                      # RunStatus.PENDING_APPROVAL
+        Action("payments.refund", {"amount": 4_800}, risk=RiskLevel.HIGH, confidence=0.9)
+    )
+    print(outcome.status)  # RunStatus.PENDING_APPROVAL
 
     # ...later, from an approval UI, possibly in another process sharing the stores:
-    await agent.approvals.decide(outcome.request_id, "alice", "modify",
-                                 comment="partial refund", modifications={"amount": 2_400})
+    await agent.approvals.decide(
+        outcome.request_id, "alice", "modify", comment="partial refund", modifications={"amount": 2_400}
+    )
     final = await agent.resume(outcome.request_id, actor="alice")
-    print(final.status, final.result)          # RunStatus.COMPLETED refunded 2400
+    print(final.status, final.result)  # RunStatus.COMPLETED refunded 2400
 
     for record in agent.history(outcome.run_id):
         print(record.seq, record.kind, record.actor)
     assert agent.audit.verify().ok
+
 
 asyncio.run(main())
 ```
@@ -125,9 +143,13 @@ Signals score an `Action` between 0 and 1. The detector combines the scores and 
 | `DisagreementSignal(key="candidates")` | `1 - share of the most common candidate` in `context[key]` | — |
 
 ```python
-detector = UncertaintyDetector(signals, threshold=0.5, aggregation="max" | "weighted" | "noisy_or",
-                               weights={"risk": 2.0})
-assessment = detector.assess(action, context)   # Assessment(score, requires_review, reasons, ...)
+detector = UncertaintyDetector(
+    signals,
+    threshold=0.5,
+    aggregation="max",  # or "weighted" / "noisy_or"
+    weights={"risk": 2.0},
+)
+assessment = detector.assess(action, context)  # Assessment(score, requires_review, reasons, ...)
 await detector.assess_many([action_a, (action_b, ctx_b)])
 ```
 
@@ -137,21 +159,21 @@ Review is required when `score >= threshold` or when any signal forces it. A sig
 
 ```python
 policy = ApprovalPolicy(
-    required_approvals=2,                 # quorum
-    required_roles={"finance"},           # approver must hold any of these roles
-    timeout_seconds=3600,                 # deadline
-    escalation_roles={"finance-lead"},    # on timeout: escalate once, then expire
+    required_approvals=2,  # quorum
+    required_roles={"finance"},  # approver must hold any of these roles
+    timeout_seconds=3600,  # deadline
+    escalation_roles={"finance-lead"},  # on timeout: escalate once, then expire
     allow_self_approval=False,
     require_comment_on_reject=True,
 )
 service = ApprovalService(store, directory, clock, event_sink)
 request = await service.request(action, "agent", reason="...", policy=policy, idempotency_key="run-1:...")
-await service.decide(request.id, "alice", Verdict.APPROVE)               # or "approve"
+await service.decide(request.id, "alice", Verdict.APPROVE)  # or "approve"
 await service.decide(request.id, "bob", "modify", modifications={"amount": 100})
 await service.decide(request.id, "carol", "reject", comment="duplicate")  # veto
-await service.wait(request.id, timeout=30)                                # await a terminal status
-await service.pending_for("alice", limit=50, cursor=None)                 # an approver's inbox (paged)
-await service.expire_due()                                                # escalation / expiry sweep
+await service.wait(request.id, timeout=30)  # await a terminal status
+await service.pending_for("alice", limit=50, cursor=None)  # an approver's inbox (paged)
+await service.expire_due()  # escalation / expiry sweep
 ```
 
 Statuses: `PENDING → APPROVED | REJECTED | EXPIRED | CANCELLED`. Decisions on one request are serialized by a per-request lock. A request's fingerprint covers its action and context, and is checked before every decision.
@@ -159,15 +181,17 @@ Statuses: `PENDING → APPROVED | REJECTED | EXPIRED | CANCELLED`. Decisions on 
 ### 3. Pause & resume with validated context — `hitl.checkpoint`
 
 ```python
-schema = InputSchema({
-    "amount": FieldSpec(int, required=False, min=1, max=1_000),
-    "reason": FieldSpec(str, choices={"goodwill", "defect"}),
-    "email":  FieldSpec(str, pattern=r"[^@]+@[^@]+", required=False),
-})
+schema = InputSchema(
+    {
+        "amount": FieldSpec(int, required=False, min=1, max=1_000),
+        "reason": FieldSpec(str, choices={"goodwill", "defect"}),
+        "email": FieldSpec(str, pattern=r"[^@]+@[^@]+", required=False),
+    }
+)
 manager = PauseResumeManager(store, clock, event_sink, default_ttl=86_400)
 checkpoint = await manager.pause(run_id, "refund", state, input_schema=schema)
 ctx = await manager.resume(checkpoint.id, {"amount": 50, "reason": "defect"}, actor="alice")
-ctx.merged        # {**state, **validated_input}
+ctx.merged  # {**state, **validated_input}
 ```
 
 `resume` refuses with:
@@ -179,14 +203,15 @@ ctx.merged        # {**state, **validated_input}
 ### 4. Audit trail — `hitl.audit`
 
 ```python
-audit = AuditLog(JsonlAuditBackend("audit.jsonl"))   # or InMemoryAuditBackend (default)
-bus.subscribe(audit)                                 # an AuditLog is also an EventSink
+audit = AuditLog(JsonlAuditBackend("audit.jsonl"))  # or InMemoryAuditBackend (default)
+bus.subscribe(audit)  # an AuditLog is also an EventSink
 audit.query(kind="approval.*", actor="alice", since=t0, limit=100, offset=0)
-audit.query(correlation_id=run_id)                   # everything that happened in one run
-report = audit.verify()                              # VerificationReport(ok, checked, first_bad_seq, error)
-anchor = audit.head_hash                             # publish externally
-audit.verify_against(anchor, seq)                    # also detects truncation
-audit.export_jsonl("export.jsonl"); AuditLog.import_jsonl("export.jsonl")   # import verifies the chain
+audit.query(correlation_id=run_id)  # everything that happened in one run
+report = audit.verify()  # VerificationReport(ok, checked, first_bad_seq, error)
+anchor = audit.head_hash  # publish externally
+audit.verify_against(anchor, seq)  # also detects truncation
+audit.export_jsonl("export.jsonl")
+AuditLog.import_jsonl("export.jsonl")  # import verifies the chain
 ```
 
 The JSONL backend is append-only, can fsync each write, and continues the hash chain after a restart. When iterating it streams from disk and keeps only an index of byte offsets in memory.
