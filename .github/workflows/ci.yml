@@ -39,6 +39,8 @@ jobs:
           cache: pip
       - run: pip install -e '.[dev]'
       - run: python -m pytest -q
+      - name: Run end-to-end example
+        run: python examples/refund_approval.py
 
   specs:
     runs-on: ubuntu-latest
